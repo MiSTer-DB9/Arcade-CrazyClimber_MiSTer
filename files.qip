@@ -13,5 +13,3 @@ set_global_assignment -name VHDL_FILE rtl/video_gen.vhd
 set_global_assignment -name VHDL_FILE rtl/crazy_climber_sound.vhd
 set_global_assignment -name VHDL_FILE rtl/crazy_climber.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE "Arcade-CrazyClimber.sv"
-set_global_assignment -name VERILOG_FILE joydb9md.v
-set_global_assignment -name VERILOG_FILE joydb15.v
