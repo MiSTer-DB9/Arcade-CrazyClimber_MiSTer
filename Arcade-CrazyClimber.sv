@@ -57,6 +57,8 @@ module emu
 	input  [11:0] HDMI_WIDTH,
 	input  [11:0] HDMI_HEIGHT,
 	output        HDMI_FREEZE,
+	output        HDMI_BLACKOUT,
+	output        HDMI_BOB_DEINT,
 
 `ifdef MISTER_FB
 	// Use framebuffer in DDRAM
@@ -177,12 +179,23 @@ module emu
 	input         OSD_STATUS
 );
 
+assign ADC_BUS  = 'Z;
+assign {UART_RTS, UART_TXD, UART_DTR} = 0;
+assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
+assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
+assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = '0;
 
 // [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: USER_PP default (port_batch replaces with USER_PP_DRIVE)
 assign USER_PP = USER_PP_DRIVE;
 // [MiSTer-DB9 END]
+
 assign VGA_F1    = 0;
 assign VGA_SCALER= 0;
+assign VGA_DISABLE = 0;
+assign HDMI_FREEZE = 0;
+assign HDMI_BLACKOUT = 0;
+assign HDMI_BOB_DEINT = 0;
+
 // [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: joydb wrapper
 wire         CLK_JOY = CLK_50M;                 // Assign clock between 40-50Mhz
 wire   [1:0] joy_type        = status[127:126]; // 0=Off, 1=Saturn, 2=DB9MD, 3=DB15
@@ -228,7 +241,7 @@ assign USER_OUT = USER_OUT_DRIVE;
 assign LED_USER  = ioctl_download;
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
-
+assign BUTTONS = 0;
 
 wire [1:0] ar = status[20:19];
 
@@ -241,13 +254,16 @@ localparam CONF_STR = {
 	"H0OJK,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"H0O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"-;",
-		// [MiSTer-DB9-Pro BEGIN] - Saturn-first joy_type (canonical bit notation)
+	// [MiSTer-DB9-Pro BEGIN] - Saturn-first joy_type (canonical bit notation)
 	"O[127:126],UserIO Joystick,Off,Saturn,DB9MD,DB15;",
 	"O[125],UserIO Players, 1 Player,2 Players;",
 	// [MiSTer-DB9-Pro END]
 	"-;",
 	"O89,Lives,3,4,5,6;",
 	//"OC,Cabinet,Upright,Cocktail;",	// not sure how to hook this up
+	"O6,Right Hand,Buttons,Second Joystick;",
+	"-;",
+	"DIP;",
 	"-;",
 	"R0,Reset;",
 	"J1,R Right,R Left,R Down,R Up,Start 1P,Start 2P,Coin;",
@@ -255,7 +271,6 @@ localparam CONF_STR = {
 	"V,v",`BUILD_DATE
 };
 
-wire [7:0] m_dip = { 6'b000000,status[9:8]};
 ////////////////////   CLOCKS   ///////////////////
 
 wire clk_sys;
@@ -281,6 +296,7 @@ wire        ioctl_download;
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_dout;
+wire  [7:0] ioctl_index;
 
 wire [15:0] joystick_0_USB, joystick_1_USB;
 wire [15:0] joy = joystick_0 | joystick_1;
@@ -315,6 +331,7 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
+	.ioctl_index(ioctl_index),
 
 	.joystick_0(joystick_0_USB),
 	.joystick_1(joystick_1_USB),
@@ -326,14 +343,18 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	// [MiSTer-DB9-Pro END]
 );
 
+// Dip switches from MRA file
+reg [7:0] sw[8];
+always @(posedge clk_sys) if (ioctl_wr && (ioctl_index==254) && !ioctl_addr[24:3]) sw[ioctl_addr[2:0]] <= ioctl_dout;
+
 wire m_right  = joystick_0[0];
 wire m_left   = joystick_0[1];
 wire m_down   = joystick_0[2];
 wire m_up     = joystick_0[3];
-wire m_rright = joystick_0[4] | joystick_1[0];
-wire m_rleft  = joystick_0[5] | joystick_1[1];
-wire m_rdown  = joystick_0[6] | joystick_1[2];
-wire m_rup    = joystick_0[7] | joystick_1[3];
+wire m_rright = status[6] ? joystick_1[0] : (joystick_0[4] | joystick_1[0]);
+wire m_rleft  = status[6] ? joystick_1[1] : (joystick_0[5] | joystick_1[1]);
+wire m_rdown  = status[6] ? joystick_1[2] : (joystick_0[6] | joystick_1[2]);
+wire m_rup    = status[6] ? joystick_1[3] : (joystick_0[7] | joystick_1[3]);
 
 wire m_start1 = joy[8];
 wire m_start2 = joy[9];
@@ -370,7 +391,7 @@ wire [15:0] audio;
 assign AUDIO_L = audio;
 assign AUDIO_R = AUDIO_L;
 assign AUDIO_S = 0;
-
+assign AUDIO_MIX = 0;
 
 
 reg ce_12;
@@ -391,7 +412,7 @@ crazy_climber crazy_climber
 	.dn_clk(clk_sys),
 	.dn_addr(ioctl_addr[15:0]),
 	.dn_data(ioctl_dout),
-	.dn_wr(ioctl_wr),
+	.dn_wr(ioctl_wr && !ioctl_index),
 
 	.video_r(r),
 	.video_g(g),
@@ -425,10 +446,8 @@ crazy_climber crazy_climber
 	.r_left2(m_rleft),
 	.r_right2(m_rright),
 
-	.cabinet(status[12]),
-
-	.dip_sw(m_dip)
+	.cabinet(sw[1][0]),
+	.dip_sw(sw[0])
 );
-
 
 endmodule
